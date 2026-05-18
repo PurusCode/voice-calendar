@@ -100,7 +100,6 @@ function autoParseDate(text) {
   else if (/кажд[ыо]й месяц|ежемесячно/i.test(text)) recurrence = 'monthly';
   document.getElementById('task-recurrence').value = recurrence;
 
-  // "Сегодня в 13:16"
   const todayMatch = text.match(/сегодня\s+в\s+(\d{1,2}):(\d{2})/i);
   if (todayMatch) {
     target.setHours(parseInt(todayMatch[1]), parseInt(todayMatch[2]));
@@ -145,14 +144,14 @@ function autoParseDate(text) {
 
   if (!matched) {
     target = new Date();
-    target.setHours(target.getHours() + 1);    target.setMinutes(0);
-  }
+    target.setHours(target.getHours() + 1);
+    target.setMinutes(0);  }
   
   document.getElementById('task-time').value = `${target.getFullYear()}-${pad(target.getMonth()+1)}-${pad(target.getDate())}T${pad(target.getHours())}:${pad(target.getMinutes())}`;
 }
 
 // ============================================
-// 📅 3. ОТКРЫТИЕ КАЛЕНДАРЯ (ANDROID INTENT)
+// 📅 3. GOOGLE CALENDAR URL (РАБОТАЕТ НА ВСЕХ!)
 // ============================================
 function showToast(msg) {
   const t = document.createElement('div');
@@ -162,70 +161,40 @@ function showToast(msg) {
   setTimeout(() => { t.style.opacity='0'; t.style.transition='opacity 0.3s'; setTimeout(()=>t.remove(),300); }, 2500);
 }
 
-function openCalendarAndroid(task) {
+function openGoogleCalendar(task) {
   const date = new Date(task.reminderTime);
   const endDate = new Date(date.getTime() + 60 * 60 * 1000); // +1 час
   
   const pad = n => n.toString().padStart(2, '0');
-  const formatDate = d => `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
   
-  // Android Intent для открытия календаря
-  const intentUrl = `intent://com.android.calendar#Intent;` +
-    `action=android.intent.action.INSERT;` +
-    `type=vnd.android.cursor.item/event;` +
-    `beginTime=${date.getTime()};` +
-    `endTime=${endDate.getTime()};` +
-    `title=${encodeURIComponent(task.text)};` +
-    `description=Создано в Голосовом Ассистенте;` +
-    `S.browser_fallback_url=${encodeURIComponent(window.location.href)};` +
-    `end`;
-
-  // Пробуем открыть через Intent
-  window.location.href = intentUrl;
+  // Формат: YYYYMMDDTHHmmSS (локальное время)
+  const formatDate = d => 
+    `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
   
-  // Если не сработало через 500мс — пробуем ICS как запасной вариант
+  // Создаём URL для Google Calendar
+  // Используем action=TEMPLATE — это стандартный метод добавления событий [[33]][[51]]
+  const baseUrl = 'https://calendar.google.com/calendar/render?action=TEMPLATE';
+  const text = `&text=${encodeURIComponent(task.text)}`;
+  const dates = `&dates=${formatDate(date)}/${formatDate(endDate)}`;
+  const details = `&details=${encodeURIComponent('Создано в Голосовом Ассистенте')}`;
+  const location = '&location=';
+  
+  const url = baseUrl + text + dates + details + location;
+  
+  // Открываем в новой вкладке
+  const newWindow = window.open(url, '_blank');
+  
+  // Показываем подсказку
   setTimeout(() => {
-    openCalendarICS(task);
+    if (!newWindow || newWindow.closed) {
+      showToast('📅 Нажмите на задачу ниже чтобы добавить в календарь');
+    } else {
+      showToast('📅 Календарь открылся в новой вкладке');
+    }
   }, 500);
 }
 
-function openCalendarICS(task) {
-  const date = new Date(task.reminderTime);
-  const pad = n => n.toString().padStart(2, '0');
-  const uid = task.id || `new_${Date.now()}`;
-  
-  const dtStart = `${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}T${pad(date.getHours())}${pad(date.getMinutes())}00`;  const dtEnd = `${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}T${pad(date.getHours()+1)}${pad(date.getMinutes())}00`;
-  
-  const ics = [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//VoiceCal//RU//',
-    'BEGIN:VEVENT',
-    `DTSTART:${dtStart}`,
-    `DTEND:${dtEnd}`,
-    `SUMMARY:${task.text.replace(/[;,:]/g, ' ')}`,
-    `UID:${uid}@voicecal`,
-    'END:VEVENT',
-    'END:VCALENDAR'
-  ].join('\r\n');
-
-  const blob = new Blob([ics], { type: 'text/calendar' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `task.ics`;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { 
-    document.body.removeChild(a); 
-    URL.revokeObjectURL(url); 
-  }, 100);
-  
-  showToast('📥 Файл скачан. Нажмите на него для добавления');
-}
-
-// ============================================
-// 🔔 4. УВЕДОМЛЕНИЯ
+// ============================================// 🔔 4. УВЕДОМЛЕНИЯ
 // ============================================
 function requestNotifPerm() {
   if (!('Notification' in window)) return;
@@ -243,7 +212,8 @@ setInterval(async () => {
   due.forEach(async task => {
     if (Notification.permission === 'granted') {
       new Notification('⏰ Напоминание', { body: task.text });
-            if (task.recurrence && task.recurrence !== 'none') {
+      
+      if (task.recurrence && task.recurrence !== 'none') {
         const next = new Date(task.reminderTime);
         if (task.recurrence === 'daily') next.setDate(next.getDate() + 1);
         else if (task.recurrence === 'weekly') next.setDate(next.getDate() + 7);
@@ -273,17 +243,16 @@ document.getElementById('btn-add').onclick = () => {
   if (!timeVal) return alert('Выберите дату и время');
   
   const newTask = { 
-    text, 
-    reminderTime: new Date(timeVal).getTime(), 
+    text,     reminderTime: new Date(timeVal).getTime(), 
     recurrence, 
     notified: false, 
     createdAt: Date.now() 
   };
   
-  // 🚀 Сначала открываем календарь (Android Intent)
-  openCalendarAndroid(newTask);
+  // 🚀 Открываем Google Calendar
+  openGoogleCalendar(newTask);
   
-  // Затем сохраняем
+  // Сохраняем в базу
   db.put(newTask).then(() => {
     document.getElementById('task-text').value = '';
     document.getElementById('task-time').value = '';
@@ -292,7 +261,8 @@ document.getElementById('btn-add').onclick = () => {
   });
 };
 
-async function renderTasks() {  const tasks = await db.getAll();
+async function renderTasks() {
+  const tasks = await db.getAll();
   const container = document.getElementById('tasks-list');
   if (tasks.length === 0) {
     container.innerHTML = '<div class="empty-state">Нет задач. Добавьте первую!</div>';
@@ -322,8 +292,7 @@ async function renderTasks() {  const tasks = await db.getAll();
   }).join('');
 }
 
-window.deleteTask = async (id) => {
-  if (confirm('Удалить задачу?')) {
+window.deleteTask = async (id) => {  if (confirm('Удалить задачу?')) {
     await db.delete(id);
     renderTasks();
   }
@@ -332,7 +301,7 @@ window.deleteTask = async (id) => {
 window.exportTask = async (id) => {
   const task = await db.get(id);
   if (task) {
-    openCalendarAndroid(task);
+    openGoogleCalendar(task);
   }
 };
 
