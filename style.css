@@ -42,3 +42,12 @@ input { padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size:
   cursor: pointer;
   opacity: 1;
 }
+
+.btn-speak {
+  color: #3b82f6;
+  font-size: 1.3rem;
+}
+
+.btn-speak:active {
+  transform: scale(0.9);
+}
