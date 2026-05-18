@@ -51,7 +51,54 @@ const db = {
 };
 
 // ============================================
-// 🎤 2. ГОЛОСОВОЙ ВВОД + УЛУЧШЕННЫЙ ПАРСИНГ
+// 🔊 2. ОЗВУЧКА (TEXT-TO-SPEECH)
+// ============================================
+const synth = window.speechSynthesis;
+let voices = [];
+let autoSpeak = localStorage.getItem('autoSpeak') === 'true';
+
+// Загрузка голосов
+function loadVoices() {
+  voices = synth.getVoices();
+}
+
+if (speechSynthesis.onvoiceschanged !== undefined) {
+  speechSynthesis.onvoiceschanged = loadVoices;
+}
+
+// Функция озвучивания
+function speak(text, rate = 1.0) {
+  if (!synth) {
+    showToast('❌ Озвучка не поддерживается');
+    return;
+  }
+  
+  // Отменяем предыдущую озвучку
+  synth.cancel();
+  
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'ru-RU';
+  utterance.rate = rate; // Скорость (0.5 - 2.0)
+  utterance.pitch = 1.0;
+  utterance.volume = 1.0;
+  
+  // Выбираем русский голос если есть
+  const ruVoice = voices.find(v => v.lang.includes('ru'));
+  if (ruVoice) {
+    utterance.voice = ruVoice;
+  }
+  
+  synth.speak(utterance);
+}
+
+// Остановка озвучки
+function stopSpeak() {
+  if (synth) {
+    synth.cancel();
+  }
+}
+// ============================================
+// 🎤 3. ГОЛОСОВОЙ ВВОД + ПАРСИНГ
 // ============================================
 const recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let isListening = false;
@@ -95,24 +142,21 @@ function autoParseDate(text) {
   let matched = false;
   const pad = n => n.toString().padStart(2, '0');
 
-  // Месяцы на русском
-  const months = {    'январ': 0, 'феврал': 1, 'март': 2, 'апрел': 3, 'мая': 4, 'май': 4,
+  const months = {
+    'январ': 0, 'феврал': 1, 'март': 2, 'апрел': 3, 'мая': 4, 'май': 4,
     'июн': 5, 'июл': 6, 'август': 7, 'сентябр': 8, 'октябр': 9, 'ноябр': 10, 'декабр': 11
   };
-
   let recurrence = 'none';
   if (/кажд[ыо]й день|ежедневно/i.test(text)) recurrence = 'daily';
   else if (/каждую неделю|еженедельно/i.test(text)) recurrence = 'weekly';
   else if (/кажд[ыо]й месяц|ежемесячно/i.test(text)) recurrence = 'monthly';
   document.getElementById('task-recurrence').value = recurrence;
 
-  // 🔥 НОВОЕ: Распознавание "30 мая в 11:00" или "15 июня"
   const dateMatch = text.match(/(\d{1,2})\s+(январ[яь]|феврал[яь]|марта?|апрел[яь]|мая|ма[яй]|июн[яь]|июл[яь]|августа?|сентябр[яь]|октябр[яь]|ноябр[яь]|декабр[яь])/i);
   if (dateMatch) {
     const day = parseInt(dateMatch[1]);
     const monthStr = dateMatch[2].toLowerCase();
     
-    // Находим месяц
     let month = -1;
     for (const [key, val] of Object.entries(months)) {
       if (monthStr.includes(key)) {
@@ -124,7 +168,6 @@ function autoParseDate(text) {
     if (month >= 0 && day >= 1 && day <= 31) {
       target.setDate(day);
       target.setMonth(month);
-      // Если дата уже прошла в этом году, ставим следующий год
       if (target < now) {
         target.setFullYear(target.getFullYear() + 1);
       }
@@ -132,44 +175,38 @@ function autoParseDate(text) {
     }
   }
 
-  // Время: "в 11:00"
   const timeMatch = text.match(/в\s+(\d{1,2}):(\d{2})/);
   if (timeMatch) {
     target.setHours(parseInt(timeMatch[1]), parseInt(timeMatch[2]));
     matched = true;
   }
 
-  // "Сегодня в 13:16"
   const todayMatch = text.match(/сегодня\s+в\s+(\d{1,2}):(\d{2})/i);
   if (todayMatch) {
     target = new Date(now);
     target.setHours(parseInt(todayMatch[1]), parseInt(todayMatch[2]));
     matched = true;
-  }  
-  // "Завтра" (без времени)
+  }
+  
   if (text.includes('завтра') && !todayMatch) { 
     target = new Date(now);
     target.setDate(target.getDate() + 1); 
     matched = true; 
   }
   
-  // "Завтра в 15:00"
-  const tomorrowMatch = text.match(/завтра\s+в\s+(\d{1,2}):(\d{2})/i);
-  if (tomorrowMatch) {
+  const tomorrowMatch = text.match(/завтра\s+в\s+(\d{1,2}):(\d{2})/i);  if (tomorrowMatch) {
     target = new Date(now);
     target.setDate(target.getDate() + 1);
     target.setHours(parseInt(tomorrowMatch[1]), parseInt(tomorrowMatch[2]));
     matched = true;
   }
   
-  // "Послезавтра"
   if (text.includes('послезавтра') && !tomorrowMatch) { 
     target = new Date(now);
     target.setDate(target.getDate() + 2); 
     matched = true; 
   }
   
-  // "Через X часов"
   const hoursMatch = text.match(/через\s+(\d+)\s+час/);
   if (hoursMatch) { 
     target = new Date(now);
@@ -177,7 +214,6 @@ function autoParseDate(text) {
     matched = true; 
   }
   
-  // "Через X минут"
   const minsMatch = text.match(/через\s+(\d+)\s+минут/);
   if (minsMatch) { 
     target = new Date(now);
@@ -185,7 +221,6 @@ function autoParseDate(text) {
     matched = true; 
   }
 
-  // ДЕФОЛТ: если ничего не распознано, ставим текущее время + 1 час
   if (!matched) {
     target = new Date();
     target.setHours(target.getHours() + 1);
@@ -194,8 +229,9 @@ function autoParseDate(text) {
   
   document.getElementById('task-time').value = `${target.getFullYear()}-${pad(target.getMonth()+1)}-${pad(target.getDate())}T${pad(target.getHours())}:${pad(target.getMinutes())}`;
 }
+
 // ============================================
-// 📅 3. GOOGLE CALENDAR URL
+// 📅 4. GOOGLE CALENDAR URL
 // ============================================
 function showToast(msg) {
   const t = document.createElement('div');
@@ -207,8 +243,7 @@ function showToast(msg) {
 
 function openGoogleCalendar(task) {
   const date = new Date(task.reminderTime);
-  const endDate = new Date(date.getTime() + 60 * 60 * 1000);
-  
+  const endDate = new Date(date.getTime() + 60 * 60 * 1000);  
   const pad = n => n.toString().padStart(2, '0');
   const formatDate = d => 
     `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
@@ -230,7 +265,7 @@ function openGoogleCalendar(task) {
 }
 
 // ============================================
-// 🔔 4. УВЕДОМЛЕНИЯ
+// 🔔 5. УВЕДОМЛЕНИЯ
 // ============================================
 function requestNotifPerm() {
   if (!('Notification' in window)) return;
@@ -243,18 +278,21 @@ document.getElementById('btn-perm').onclick = requestNotifPerm;
 setInterval(async () => {
   const now = Date.now();
   const tasks = await db.getAll();
-  const due = tasks.filter(t => t.reminderTime <= now && !t.notified);  
+  const due = tasks.filter(t => t.reminderTime <= now && !t.notified);
+  
   due.forEach(async task => {
     if (Notification.permission === 'granted') {
       new Notification('⏰ Напоминание', { body: task.text });
+      
+      // 🔊 Озвучиваем напоминание!
+      speak(`Напоминание: ${task.text}`);
       
       if (task.recurrence && task.recurrence !== 'none') {
         const next = new Date(task.reminderTime);
         if (task.recurrence === 'daily') next.setDate(next.getDate() + 1);
         else if (task.recurrence === 'weekly') next.setDate(next.getDate() + 7);
         else if (task.recurrence === 'monthly') next.setMonth(next.getMonth() + 1);
-        
-        task.reminderTime = next.getTime();
+                task.reminderTime = next.getTime();
         task.notified = false;
         await db.put(task);
       } else {
@@ -267,7 +305,7 @@ setInterval(async () => {
 }, 60000);
 
 // ============================================
-// 🖼️ 5. UI
+// 🖼️ 6. UI
 // ============================================
 document.getElementById('btn-add').onclick = () => {
   const text = document.getElementById('task-text').value.trim();
@@ -292,13 +330,18 @@ document.getElementById('btn-add').onclick = () => {
     document.getElementById('task-time').value = '';
     document.getElementById('task-recurrence').value = 'none';
     renderTasks();
-  });};
+    
+    // 🔊 Озвучиваем добавление задачи
+    if (autoSpeak) {
+      speak(`Добавлена задача: ${newTask.text}`);
+    }
+  });
+};
 
 async function renderTasks() {
   const tasks = await db.getAll();
   const container = document.getElementById('tasks-list');
-  if (tasks.length === 0) {
-    container.innerHTML = '<div class="empty-state">Нет задач. Добавьте первую!</div>';
+  if (tasks.length === 0) {    container.innerHTML = '<div class="empty-state">Нет задач. Добавьте первую!</div>';
     return;
   }
 
@@ -318,6 +361,7 @@ async function renderTasks() {
           <div class="task-time">${dateStr}</div>
         </div>
         <div class="task-actions">
+          <button class="btn-icon btn-speak" onclick="event.stopPropagation(); window.speakTask(${t.id})">🔊</button>
           <button class="btn-icon btn-delete" onclick="event.stopPropagation(); window.deleteTask(${t.id})">🗑️</button>
         </div>
       </div>
@@ -332,13 +376,37 @@ window.deleteTask = async (id) => {
   }
 };
 
+window.speakTask = async (id) => {
+  const task = await db.get(id);
+  if (task) {
+    const date = new Date(task.reminderTime);
+    const dateStr = date.toLocaleString('ru-RU', { day:'numeric', month:'long', hour:'2-digit', minute:'2-digit' });
+    speak(`${task.text}. ${dateStr}`);
+  }
+};
+
 window.exportTask = async (id) => {
   const task = await db.get(id);
   if (task) {
     openGoogleCalendar(task);
   }
 };
+// Переключение авто-озвучки
+window.toggleAutoSpeak = () => {
+  autoSpeak = !autoSpeak;
+  localStorage.setItem('autoSpeak', autoSpeak);
+  document.getElementById('btn-speak-toggle').textContent = autoSpeak ? '🔊' : '🔇';
+  showToast(autoSpeak ? '🔊 Авто-озвучка включена' : '🔇 Авто-озвучка выключена');
+};
 
 document.addEventListener('DOMContentLoaded', () => {
   requestNotifPerm();
-  renderTasks();});
+  loadVoices();
+  renderTasks();
+  
+  // Устанавливаем состояние кнопки авто-озвучки
+  const btn = document.getElementById('btn-speak-toggle');
+  if (btn) {
+    btn.textContent = autoSpeak ? '🔊' : '🔇';
+  }
+});
