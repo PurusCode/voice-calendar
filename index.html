@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Голосовой Ассистент</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#4F46E5">
+</head>
+<body>
+  <header>
+    <h1>📅 Голосовой Календарь</h1>
+    <button id="btn-perm" class="icon-btn">🔔</button>
+  </header>
+
+  <main>
+    <!-- Голосовой ввод -->
+    <div class="voice-box">
+      <button id="btn-mic" class="mic-btn"></button>
+      <p id="voice-status">Нажмите и скажите задачу</p>
+    </div>
+
+    <!-- Ручной ввод / Редактирование -->
+    <div class="input-box">
+      <input type="text" id="task-text" placeholder="Задача...">
+      <input type="datetime-local" id="task-time">
+      <select id="task-recurrence">
+        <option value="none">Без повтора</option>
+        <option value="daily">🔁 Каждый день</option>
+        <option value="weekly">🔁 Каждую неделю</option>
+        <option value="monthly">🔁 Каждый месяц</option>
+      </select>
+      <button id="btn-add" class="btn-primary">➕ Добавить</button>
+    </div>
+
+    <!-- Список задач -->
+    <div id="tasks-list"></div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
