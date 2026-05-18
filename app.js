@@ -51,7 +51,7 @@ const db = {
 };
 
 // ============================================
-// 🎤 2. ГОЛОСОВОЙ ВВОД + ПАРСИНГ ДАТ
+// 🎤 2. ГОЛОСОВОЙ ВВОД + УЛУЧШЕННЫЙ ПАРСИНГ
 // ============================================
 const recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let isListening = false;
@@ -78,7 +78,7 @@ if (recognition) {
     autoParseDate(text);
   };
   rec.onerror = () => {
-    document.getElementById('voice-status').textContent = 'Ошибка распознавания. Попробуйте снова.';
+    document.getElementById('voice-status').textContent = 'Ошибка. Попробуйте снова.';
     isListening = false;
     document.getElementById('btn-mic').classList.remove('listening');
   };
@@ -93,43 +93,78 @@ function autoParseDate(text) {
   const now = new Date();
   let target = new Date(now);
   let matched = false;
+  const pad = n => n.toString().padStart(2, '0');
 
   // 🔄 Распознавание повторов
-  let recurrence = 'none';
-  if (/кажд[ыо]й день|ежедневно/i.test(text)) recurrence = 'daily';  else if (/каждую неделю|еженедельно/i.test(text)) recurrence = 'weekly';
+  let recurrence = 'none';  if (/кажд[ыо]й день|ежедневно/i.test(text)) recurrence = 'daily';
+  else if (/каждую неделю|еженедельно/i.test(text)) recurrence = 'weekly';
   else if (/кажд[ыо]й месяц|ежемесячно/i.test(text)) recurrence = 'monthly';
   document.getElementById('task-recurrence').value = recurrence;
 
-  // 📅 Распознавание дат
-  if (text.includes('завтра')) { target.setDate(target.getDate() + 1); matched = true; }
-  if (text.includes('послезавтра')) { target.setDate(target.getDate() + 2); matched = true; }
+  // 📅 УЛУЧШЕННЫЙ парсинг дат
   
+  // "Сегодня в 13:16" или "сегодня в 18:00"
+  const todayMatch = text.match(/сегодня\s+в\s+(\d{1,2}):(\d{2})/i);
+  if (todayMatch) {
+    target.setHours(parseInt(todayMatch[1]), parseInt(todayMatch[2]));
+    matched = true;
+  }
+  
+  // "Завтра" (без времени)
+  if (text.includes('завтра') && !todayMatch) { 
+    target.setDate(target.getDate() + 1); 
+    matched = true; 
+  }
+  
+  // "Завтра в 15:00"
+  const tomorrowMatch = text.match(/завтра\s+в\s+(\d{1,2}):(\d{2})/i);
+  if (tomorrowMatch) {
+    target.setDate(target.getDate() + 1);
+    target.setHours(parseInt(tomorrowMatch[1]), parseInt(tomorrowMatch[2]));
+    matched = true;
+  }
+  
+  // "Послезавтра"
+  if (text.includes('послезавтра')) { 
+    target.setDate(target.getDate() + 2); 
+    matched = true; 
+  }
+  
+  // "Через X часов"
   const hoursMatch = text.match(/через\s+(\d+)\s+час/);
-  if (hoursMatch) { target.setHours(target.getHours() + parseInt(hoursMatch[1])); matched = true; }
+  if (hoursMatch) { 
+    target.setHours(target.getHours() + parseInt(hoursMatch[1])); 
+    matched = true; 
+  }
   
+  // "Через X минут"
   const minsMatch = text.match(/через\s+(\d+)\s+минут/);
-  if (minsMatch) { target.setMinutes(target.getMinutes() + parseInt(minsMatch[1])); matched = true; }
+  if (minsMatch) { 
+    target.setMinutes(target.getMinutes() + parseInt(minsMatch[1])); 
+    matched = true; 
+  }
   
-  const timeMatch = text.match(/в\s+(\d{1,2}):(\d{2})/);
-  if (timeMatch) {
-    target.setHours(parseInt(timeMatch[1]), parseInt(timeMatch[2]));
+  // Просто время "в 18:00" (без даты)
+  const timeOnlyMatch = text.match(/в\s+(\d{1,2}):(\d{2})/);  if (timeOnlyMatch && !todayMatch && !tomorrowMatch) {
+    target.setHours(parseInt(timeOnlyMatch[1]), parseInt(timeOnlyMatch[2]));
+    // Если время уже прошло, ставим на завтра
     if (target < now) target.setDate(target.getDate() + 1);
     matched = true;
   }
 
-  // 🕐 ДЕФОЛТ: если дата не распознана, ставим текущее время + 1 час
-  const pad = n => n.toString().padStart(2, '0');
+  // 🕐 ДЕФОЛТ: если ничего не распознано, ставим текущее время + 1 час
   if (!matched) {
     target = new Date();
     target.setHours(target.getHours() + 1);
     target.setMinutes(0);
   }
   
+  // Заполняем поле (формат YYYY-MM-DDTHH:MM)
   document.getElementById('task-time').value = `${target.getFullYear()}-${pad(target.getMonth()+1)}-${pad(target.getDate())}T${pad(target.getHours())}:${pad(target.getMinutes())}`;
 }
 
 // ============================================
-// 📅 3. ЭКСПОРТ В КАЛЕНДАРЬ (СИНХРОННЫЙ)
+// 📅 3. ЭКСПОРТ В КАЛЕНДАРЬ (ИСПРАВЛЕННЫЙ ФОРМАТ)
 // ============================================
 function showToast(msg) {
   const t = document.createElement('div');
@@ -144,34 +179,61 @@ function openInCalendarSync(task) {
   const pad = n => n.toString().padStart(2, '0');
   const uid = task.id || `new_${Date.now()}`;
   
-  // Формат UTC для ICS
-  const dtStart = `${date.getUTCFullYear()}${pad(date.getUTCMonth()+1)}${pad(date.getUTCDate())}T${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}00Z`;  
+  //  ИСПРАВЛЕННЫЙ формат ICS (локальное время вместо UTC)
+  const dtStart = `${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}T${pad(date.getHours())}${pad(date.getMinutes())}00`;
+  
   const ics = [
-    'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//VoiceCal//RU//',
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//VoiceCal//RU//',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
     'BEGIN:VEVENT',
-    `SUMMARY:${task.text.replace(/[,;\\]/g, ' ')}`, // Очистка от спецсимволов ICS
-    `DTSTART:${dtStart}`,
+    `DTSTART;TZID=Europe/Moscow:${dtStart}`,
+    `DTSTAMP:${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}T${pad(date.getHours())}${pad(date.getMinutes())}00`,
     `UID:${uid}@voicecal`,
-    'END:VEVENT','END:VCALENDAR'
+    `SUMMARY:${task.text.replace(/[;,:]/g, ' ')}`,
+    'DESCRIPTION:Создано в Голосовом Ассистенте',
+    'END:VEVENT',    'END:VCALENDAR'
   ].join('\r\n');
 
-  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  
-  // Синхронный клик (работает даже после UI-событий)
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `task_${uid}.ics`;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+  try {
+    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    
+    // Пробуем открыть в новой вкладке (Android)
+    const newWindow = window.open(url, '_blank');
+    
+    // Если не открылось — создаем ссылку для скачивания
+    if (!newWindow || newWindow.closed) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `task_${uid}.ics`;
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { 
+        document.body.removeChild(a); 
+        URL.revokeObjectURL(url); 
+      }, 100);
+    }
+    
+    // Показываем подсказку
+    setTimeout(() => {
+      showToast('📅 Если календарь не открылся — нажмите на задачу ниже');
+    }, 1000);
+    
+  } catch (e) {
+    console.error('Calendar export failed:', e);
+    showToast('❌ Ошибка экспорта. Попробуйте вручную');
+  }
 }
 
 // ============================================
-// 🔔 4. УВЕДОМЛЕНИЯ (ПРОВЕРКА КАЖДУЮ МИНУТУ)
+// 🔔 4. УВЕДОМЛЕНИЯ
 // ============================================
 function requestNotifPerm() {
-  if (!('Notification' in window)) return alert('Уведомления не поддерживаются');
+  if (!('Notification' in window)) return;
   Notification.requestPermission().then(p => {
     document.getElementById('btn-perm').textContent = p === 'granted' ? '✅' : '';
   });
@@ -181,11 +243,10 @@ document.getElementById('btn-perm').onclick = requestNotifPerm;
 setInterval(async () => {
   const now = Date.now();
   const tasks = await db.getAll();
-  const due = tasks.filter(t => t.reminderTime <= now && !t.notified);
-  
+  const due = tasks.filter(t => t.reminderTime <= now && !t.notified);  
   due.forEach(async task => {
     if (Notification.permission === 'granted') {
-      new Notification('⏰ Напоминание', { body: task.text, icon: '' });
+      new Notification('⏰ Напоминание', { body: task.text });
       
       if (task.recurrence && task.recurrence !== 'none') {
         const next = new Date(task.reminderTime);
@@ -194,7 +255,8 @@ setInterval(async () => {
         else if (task.recurrence === 'monthly') next.setMonth(next.getMonth() + 1);
         
         task.reminderTime = next.getTime();
-        task.notified = false;        await db.put(task);
+        task.notified = false;
+        await db.put(task);
       } else {
         task.notified = true;
         await db.put(task);
@@ -205,7 +267,7 @@ setInterval(async () => {
 }, 60000);
 
 // ============================================
-// ️ 5. UI: ДОБАВЛЕНИЕ, ОТРИСОВКА, УДАЛЕНИЕ
+// 🖼️ 5. UI
 // ============================================
 document.getElementById('btn-add').onclick = () => {
   const text = document.getElementById('task-text').value.trim();
@@ -223,16 +285,14 @@ document.getElementById('btn-add').onclick = () => {
     createdAt: Date.now() 
   };
   
-  // 1️⃣ Сначала открываем календарь (пока браузер разрешает синхронные действия)
-  try { openInCalendarSync(newTask); } catch(e) { console.warn('Calendar trigger blocked', e); }
+  // 1️⃣ Сначала открываем календарь
+  openInCalendarSync(newTask);
   
-  // 2️⃣ Затем сохраняем в базу
+  // 2️⃣ Затем сохраняем
   db.put(newTask).then(() => {
     document.getElementById('task-text').value = '';
     document.getElementById('task-time').value = '';
-    document.getElementById('task-recurrence').value = 'none';
-    renderTasks();
-    showToast(' Задача добавлена!');
+    document.getElementById('task-recurrence').value = 'none';    renderTasks();
   });
 };
 
@@ -243,16 +303,16 @@ async function renderTasks() {
     container.innerHTML = '<div class="empty-state">Нет задач. Добавьте первую!</div>';
     return;
   }
+
   container.innerHTML = tasks.map(t => {
     const date = new Date(t.reminderTime);
     const dateStr = date.toLocaleString('ru-RU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
     
     let badge = '';
-    if (t.recurrence === 'daily') badge = '  День';
+    if (t.recurrence === 'daily') badge = ' 🔁 День';
     else if (t.recurrence === 'weekly') badge = ' 🔁 Неделя';
     else if (t.recurrence === 'monthly') badge = ' 🔁 Месяц';
 
-    // 🖱️ Вся карточка кликабельна для экспорта в календарь
     return `
       <div class="task-card" style="${t.notified ? 'opacity:0.5;text-decoration:line-through' : ''}" onclick="window.exportTask(${t.id})">
         <div class="task-info">
@@ -260,7 +320,7 @@ async function renderTasks() {
           <div class="task-time">${dateStr}</div>
         </div>
         <div class="task-actions">
-          <button class="btn-icon btn-delete" onclick="event.stopPropagation(); window.deleteTask(${t.id})">️</button>
+          <button class="btn-icon btn-delete" onclick="event.stopPropagation(); window.deleteTask(${t.id})">🗑️</button>
         </div>
       </div>
     `;
@@ -278,11 +338,9 @@ window.exportTask = async (id) => {
   const task = await db.get(id);
   if (task) {
     openInCalendarSync(task);
-    showToast('📅 Открываю календарь...');
   }
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-  requestNotifPerm();
+document.addEventListener('DOMContentLoaded', () => {  requestNotifPerm();
   renderTasks();
 });
