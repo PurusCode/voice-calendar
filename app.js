@@ -51,7 +51,7 @@ const db = {
 };
 
 // ============================================
-// 🎤 2. ГОЛОСОВОЙ ВВОД + УЛУЧШЕННЫЙ ПАРСИНГ
+// 🎤 2. ГОЛОСОВОЙ ВВОД + ПАРСИНГ
 // ============================================
 const recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let isListening = false;
@@ -95,28 +95,23 @@ function autoParseDate(text) {
   let matched = false;
   const pad = n => n.toString().padStart(2, '0');
 
-  // 🔄 Распознавание повторов
-  let recurrence = 'none';  if (/кажд[ыо]й день|ежедневно/i.test(text)) recurrence = 'daily';
-  else if (/каждую неделю|еженедельно/i.test(text)) recurrence = 'weekly';
+  let recurrence = 'none';
+  if (/кажд[ыо]й день|ежедневно/i.test(text)) recurrence = 'daily';  else if (/каждую неделю|еженедельно/i.test(text)) recurrence = 'weekly';
   else if (/кажд[ыо]й месяц|ежемесячно/i.test(text)) recurrence = 'monthly';
   document.getElementById('task-recurrence').value = recurrence;
 
-  // 📅 УЛУЧШЕННЫЙ парсинг дат
-  
-  // "Сегодня в 13:16" или "сегодня в 18:00"
+  // "Сегодня в 13:16"
   const todayMatch = text.match(/сегодня\s+в\s+(\d{1,2}):(\d{2})/i);
   if (todayMatch) {
     target.setHours(parseInt(todayMatch[1]), parseInt(todayMatch[2]));
     matched = true;
   }
   
-  // "Завтра" (без времени)
   if (text.includes('завтра') && !todayMatch) { 
     target.setDate(target.getDate() + 1); 
     matched = true; 
   }
   
-  // "Завтра в 15:00"
   const tomorrowMatch = text.match(/завтра\s+в\s+(\d{1,2}):(\d{2})/i);
   if (tomorrowMatch) {
     target.setDate(target.getDate() + 1);
@@ -124,109 +119,109 @@ function autoParseDate(text) {
     matched = true;
   }
   
-  // "Послезавтра"
   if (text.includes('послезавтра')) { 
     target.setDate(target.getDate() + 2); 
     matched = true; 
   }
   
-  // "Через X часов"
   const hoursMatch = text.match(/через\s+(\d+)\s+час/);
   if (hoursMatch) { 
     target.setHours(target.getHours() + parseInt(hoursMatch[1])); 
     matched = true; 
   }
   
-  // "Через X минут"
   const minsMatch = text.match(/через\s+(\d+)\s+минут/);
   if (minsMatch) { 
     target.setMinutes(target.getMinutes() + parseInt(minsMatch[1])); 
     matched = true; 
   }
   
-  // Просто время "в 18:00" (без даты)
-  const timeOnlyMatch = text.match(/в\s+(\d{1,2}):(\d{2})/);  if (timeOnlyMatch && !todayMatch && !tomorrowMatch) {
+  const timeOnlyMatch = text.match(/в\s+(\d{1,2}):(\d{2})/);
+  if (timeOnlyMatch && !todayMatch && !tomorrowMatch) {
     target.setHours(parseInt(timeOnlyMatch[1]), parseInt(timeOnlyMatch[2]));
-    // Если время уже прошло, ставим на завтра
     if (target < now) target.setDate(target.getDate() + 1);
     matched = true;
   }
 
-  // 🕐 ДЕФОЛТ: если ничего не распознано, ставим текущее время + 1 час
   if (!matched) {
     target = new Date();
-    target.setHours(target.getHours() + 1);
-    target.setMinutes(0);
+    target.setHours(target.getHours() + 1);    target.setMinutes(0);
   }
   
-  // Заполняем поле (формат YYYY-MM-DDTHH:MM)
   document.getElementById('task-time').value = `${target.getFullYear()}-${pad(target.getMonth()+1)}-${pad(target.getDate())}T${pad(target.getHours())}:${pad(target.getMinutes())}`;
 }
 
 // ============================================
-// 📅 3. ЭКСПОРТ В КАЛЕНДАРЬ (ИСПРАВЛЕННЫЙ ФОРМАТ)
+// 📅 3. ОТКРЫТИЕ КАЛЕНДАРЯ (ANDROID INTENT)
 // ============================================
 function showToast(msg) {
   const t = document.createElement('div');
   t.textContent = msg;
-  t.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#334155;color:#fff;padding:12px 20px;border-radius:8px;font-size:0.9rem;z-index:9999;box-shadow:0 4px 10px rgba(0,0,0,0.3);';
+  t.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#334155;color:#fff;padding:12px 20px;border-radius:8px;font-size:0.9rem;z-index:9999;';
   document.body.appendChild(t);
   setTimeout(() => { t.style.opacity='0'; t.style.transition='opacity 0.3s'; setTimeout(()=>t.remove(),300); }, 2500);
 }
 
-function openInCalendarSync(task) {
+function openCalendarAndroid(task) {
+  const date = new Date(task.reminderTime);
+  const endDate = new Date(date.getTime() + 60 * 60 * 1000); // +1 час
+  
+  const pad = n => n.toString().padStart(2, '0');
+  const formatDate = d => `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  
+  // Android Intent для открытия календаря
+  const intentUrl = `intent://com.android.calendar#Intent;` +
+    `action=android.intent.action.INSERT;` +
+    `type=vnd.android.cursor.item/event;` +
+    `beginTime=${date.getTime()};` +
+    `endTime=${endDate.getTime()};` +
+    `title=${encodeURIComponent(task.text)};` +
+    `description=Создано в Голосовом Ассистенте;` +
+    `S.browser_fallback_url=${encodeURIComponent(window.location.href)};` +
+    `end`;
+
+  // Пробуем открыть через Intent
+  window.location.href = intentUrl;
+  
+  // Если не сработало через 500мс — пробуем ICS как запасной вариант
+  setTimeout(() => {
+    openCalendarICS(task);
+  }, 500);
+}
+
+function openCalendarICS(task) {
   const date = new Date(task.reminderTime);
   const pad = n => n.toString().padStart(2, '0');
   const uid = task.id || `new_${Date.now()}`;
   
-  //  ИСПРАВЛЕННЫЙ формат ICS (локальное время вместо UTC)
-  const dtStart = `${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}T${pad(date.getHours())}${pad(date.getMinutes())}00`;
+  const dtStart = `${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}T${pad(date.getHours())}${pad(date.getMinutes())}00`;  const dtEnd = `${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}T${pad(date.getHours()+1)}${pad(date.getMinutes())}00`;
   
   const ics = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//VoiceCal//RU//',
-    'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
     'BEGIN:VEVENT',
-    `DTSTART;TZID=Europe/Moscow:${dtStart}`,
-    `DTSTAMP:${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}T${pad(date.getHours())}${pad(date.getMinutes())}00`,
-    `UID:${uid}@voicecal`,
+    `DTSTART:${dtStart}`,
+    `DTEND:${dtEnd}`,
     `SUMMARY:${task.text.replace(/[;,:]/g, ' ')}`,
-    'DESCRIPTION:Создано в Голосовом Ассистенте',
-    'END:VEVENT',    'END:VCALENDAR'
+    `UID:${uid}@voicecal`,
+    'END:VEVENT',
+    'END:VCALENDAR'
   ].join('\r\n');
 
-  try {
-    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    
-    // Пробуем открыть в новой вкладке (Android)
-    const newWindow = window.open(url, '_blank');
-    
-    // Если не открылось — создаем ссылку для скачивания
-    if (!newWindow || newWindow.closed) {
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `task_${uid}.ics`;
-      a.target = '_blank';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { 
-        document.body.removeChild(a); 
-        URL.revokeObjectURL(url); 
-      }, 100);
-    }
-    
-    // Показываем подсказку
-    setTimeout(() => {
-      showToast('📅 Если календарь не открылся — нажмите на задачу ниже');
-    }, 1000);
-    
-  } catch (e) {
-    console.error('Calendar export failed:', e);
-    showToast('❌ Ошибка экспорта. Попробуйте вручную');
-  }
+  const blob = new Blob([ics], { type: 'text/calendar' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `task.ics`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { 
+    document.body.removeChild(a); 
+    URL.revokeObjectURL(url); 
+  }, 100);
+  
+  showToast('📥 Файл скачан. Нажмите на него для добавления');
 }
 
 // ============================================
@@ -243,12 +238,12 @@ document.getElementById('btn-perm').onclick = requestNotifPerm;
 setInterval(async () => {
   const now = Date.now();
   const tasks = await db.getAll();
-  const due = tasks.filter(t => t.reminderTime <= now && !t.notified);  
+  const due = tasks.filter(t => t.reminderTime <= now && !t.notified);
+  
   due.forEach(async task => {
     if (Notification.permission === 'granted') {
       new Notification('⏰ Напоминание', { body: task.text });
-      
-      if (task.recurrence && task.recurrence !== 'none') {
+            if (task.recurrence && task.recurrence !== 'none') {
         const next = new Date(task.reminderTime);
         if (task.recurrence === 'daily') next.setDate(next.getDate() + 1);
         else if (task.recurrence === 'weekly') next.setDate(next.getDate() + 7);
@@ -285,19 +280,19 @@ document.getElementById('btn-add').onclick = () => {
     createdAt: Date.now() 
   };
   
-  // 1️⃣ Сначала открываем календарь
-  openInCalendarSync(newTask);
+  // 🚀 Сначала открываем календарь (Android Intent)
+  openCalendarAndroid(newTask);
   
-  // 2️⃣ Затем сохраняем
+  // Затем сохраняем
   db.put(newTask).then(() => {
     document.getElementById('task-text').value = '';
     document.getElementById('task-time').value = '';
-    document.getElementById('task-recurrence').value = 'none';    renderTasks();
+    document.getElementById('task-recurrence').value = 'none';
+    renderTasks();
   });
 };
 
-async function renderTasks() {
-  const tasks = await db.getAll();
+async function renderTasks() {  const tasks = await db.getAll();
   const container = document.getElementById('tasks-list');
   if (tasks.length === 0) {
     container.innerHTML = '<div class="empty-state">Нет задач. Добавьте первую!</div>';
@@ -337,10 +332,11 @@ window.deleteTask = async (id) => {
 window.exportTask = async (id) => {
   const task = await db.get(id);
   if (task) {
-    openInCalendarSync(task);
+    openCalendarAndroid(task);
   }
 };
 
-document.addEventListener('DOMContentLoaded', () => {  requestNotifPerm();
+document.addEventListener('DOMContentLoaded', () => {
+  requestNotifPerm();
   renderTasks();
 });
