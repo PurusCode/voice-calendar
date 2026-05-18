@@ -101,40 +101,15 @@ function autoParseDate(text) {
   document.getElementById('task-recurrence').value = recurrence;
 
   const todayMatch = text.match(/сегодня\s+в\s+(\d{1,2}):(\d{2})/i);
-  if (todayMatch) {
-    target.setHours(parseInt(todayMatch[1]), parseInt(todayMatch[2]));
-    matched = true;
-  }
-  
-  if (text.includes('завтра') && !todayMatch) { 
-    target.setDate(target.getDate() + 1); 
-    matched = true; 
-  }
-  
+  if (todayMatch) { target.setHours(parseInt(todayMatch[1]), parseInt(todayMatch[2])); matched = true; }
+  if (text.includes('завтра') && !todayMatch) { target.setDate(target.getDate() + 1); matched = true; }
   const tomorrowMatch = text.match(/завтра\s+в\s+(\d{1,2}):(\d{2})/i);
-  if (tomorrowMatch) {
-    target.setDate(target.getDate() + 1);
-    target.setHours(parseInt(tomorrowMatch[1]), parseInt(tomorrowMatch[2]));
-    matched = true;
-  }
-  
-  if (text.includes('послезавтра')) { 
-    target.setDate(target.getDate() + 2); 
-    matched = true; 
-  }
-  
+  if (tomorrowMatch) { target.setDate(target.getDate() + 1); target.setHours(parseInt(tomorrowMatch[1]), parseInt(tomorrowMatch[2])); matched = true; }
+  if (text.includes('послезавтра')) { target.setDate(target.getDate() + 2); matched = true; }
   const hoursMatch = text.match(/через\s+(\d+)\s+час/);
-  if (hoursMatch) { 
-    target.setHours(target.getHours() + parseInt(hoursMatch[1])); 
-    matched = true; 
-  }
-  
+  if (hoursMatch) { target.setHours(target.getHours() + parseInt(hoursMatch[1])); matched = true; }
   const minsMatch = text.match(/через\s+(\d+)\s+минут/);
-  if (minsMatch) { 
-    target.setMinutes(target.getMinutes() + parseInt(minsMatch[1])); 
-    matched = true; 
-  }
-  
+  if (minsMatch) { target.setMinutes(target.getMinutes() + parseInt(minsMatch[1])); matched = true; }
   const timeOnlyMatch = text.match(/в\s+(\d{1,2}):(\d{2})/);
   if (timeOnlyMatch && !todayMatch && !tomorrowMatch) {
     target.setHours(parseInt(timeOnlyMatch[1]), parseInt(timeOnlyMatch[2]));
@@ -142,16 +117,13 @@ function autoParseDate(text) {
     matched = true;
   }
 
-  if (!matched) {
-    target = new Date();
-    target.setHours(target.getHours() + 1);
-    target.setMinutes(0);  }
+  if (!matched) { target = new Date(); target.setHours(target.getHours() + 1); target.setMinutes(0); }
   
   document.getElementById('task-time').value = `${target.getFullYear()}-${pad(target.getMonth()+1)}-${pad(target.getDate())}T${pad(target.getHours())}:${pad(target.getMinutes())}`;
 }
 
 // ============================================
-// 📅 3. GOOGLE CALENDAR URL (РАБОТАЕТ НА ВСЕХ!)
+//  3. ЭКСПОРТ: GOOGLE CALENDAR + ICS FALLBACK
 // ============================================
 function showToast(msg) {
   const t = document.createElement('div');
@@ -161,40 +133,54 @@ function showToast(msg) {
   setTimeout(() => { t.style.opacity='0'; t.style.transition='opacity 0.3s'; setTimeout(()=>t.remove(),300); }, 2500);
 }
 
-function openGoogleCalendar(task) {
+function exportToCalendar(task) {
   const date = new Date(task.reminderTime);
-  const endDate = new Date(date.getTime() + 60 * 60 * 1000); // +1 час
-  
+  const endDate = new Date(date.getTime() + 60 * 60 * 1000);
   const pad = n => n.toString().padStart(2, '0');
+  const fmt = d => `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
   
-  // Формат: YYYYMMDDTHHmmSS (локальное время)
-  const formatDate = d => 
-    `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  // 1️ Google Calendar URL (открывает форму)
+  const gcalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(task.text)}&dates=${fmt(date)}/${fmt(endDate)}&details=Создано в Ассистенте`;
   
-  // Создаём URL для Google Calendar
-  // Используем action=TEMPLATE — это стандартный метод добавления событий [[33]][[51]]
-  const baseUrl = 'https://calendar.google.com/calendar/render?action=TEMPLATE';
-  const text = `&text=${encodeURIComponent(task.text)}`;
-  const dates = `&dates=${formatDate(date)}/${formatDate(endDate)}`;
-  const details = `&details=${encodeURIComponent('Создано в Голосовом Ассистенте')}`;
-  const location = '&location=';
+  // Пробуем открыть в новой вкладке
+  const win = window.open(gcalUrl, '_blank');
   
-  const url = baseUrl + text + dates + details + location;
-  
-  // Открываем в новой вкладке
-  const newWindow = window.open(url, '_blank');
-  
-  // Показываем подсказку
-  setTimeout(() => {
-    if (!newWindow || newWindow.closed) {
-      showToast('📅 Нажмите на задачу ниже чтобы добавить в календарь');
-    } else {
-      showToast('📅 Календарь открылся в новой вкладке');
+  // 2️⃣ Если не открылось (или через 1с) — предлагаем ICS через Share API (работает на Xiaomi!)  setTimeout(async () => {
+    if (!win || win.closed) {
+      const ics = [
+        'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//VoiceCal//RU//','BEGIN:VEVENT',
+        `DTSTART:${fmt(date)}`, `DTEND:${fmt(endDate)}`,
+        `SUMMARY:${task.text.replace(/[;,:]/g,' ')}`,
+        `DESCRIPTION:Напоминание от Голосового Ассистента`,
+        'BEGIN:VALARM','TRIGGER:-PT5M','ACTION:DISPLAY','DESCRIPTION:Напоминание','END:VALARM',
+        'END:VEVENT','END:VCALENDAR'
+      ].join('\r\n');
+      
+      const blob = new Blob([ics], { type: 'text/calendar' });
+      const file = new File([blob], `task.ics`, { type: 'text/calendar' });
+      
+      if (navigator.share) {
+        try {
+          await navigator.share({ files: [file], title: 'Задача' });
+        } catch (e) {
+          // Fallback на скачивание
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a'); a.href = url; a.download = 'task.ics'; a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 100);
+          showToast('📥 Файл скачан. Откройте его');
+        }
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'task.ics'; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 100);
+        showToast('📥 Файл скачан. Откройте его');
+      }
     }
-  }, 500);
+  }, 1000);
 }
 
-// ============================================// 🔔 4. УВЕДОМЛЕНИЯ
+// ============================================
+// 🔔 4. ЛОКАЛЬНЫЕ УВЕДОМЛЕНИЯ (ДЛЯ ОТКРЫТОГО ПРИЛОЖЕНИЯ)
 // ============================================
 function requestNotifPerm() {
   if (!('Notification' in window)) return;
@@ -208,17 +194,15 @@ setInterval(async () => {
   const now = Date.now();
   const tasks = await db.getAll();
   const due = tasks.filter(t => t.reminderTime <= now && !t.notified);
-  
-  due.forEach(async task => {
+    due.forEach(async task => {
     if (Notification.permission === 'granted') {
-      new Notification('⏰ Напоминание', { body: task.text });
+      new Notification('⏰ Напоминание', { body: task.text, vibrate: [200,100,200] });
       
       if (task.recurrence && task.recurrence !== 'none') {
         const next = new Date(task.reminderTime);
         if (task.recurrence === 'daily') next.setDate(next.getDate() + 1);
         else if (task.recurrence === 'weekly') next.setDate(next.getDate() + 7);
         else if (task.recurrence === 'monthly') next.setMonth(next.getMonth() + 1);
-        
         task.reminderTime = next.getTime();
         task.notified = false;
         await db.put(task);
@@ -242,17 +226,10 @@ document.getElementById('btn-add').onclick = () => {
   if (!text) return alert('Введите текст задачи');
   if (!timeVal) return alert('Выберите дату и время');
   
-  const newTask = { 
-    text,     reminderTime: new Date(timeVal).getTime(), 
-    recurrence, 
-    notified: false, 
-    createdAt: Date.now() 
-  };
+  const newTask = { text, reminderTime: new Date(timeVal).getTime(), recurrence, notified: false, createdAt: Date.now() };
   
-  // 🚀 Открываем Google Calendar
-  openGoogleCalendar(newTask);
+  exportToCalendar(newTask); // Открывает календарь или предлагает ICS
   
-  // Сохраняем в базу
   db.put(newTask).then(() => {
     document.getElementById('task-text').value = '';
     document.getElementById('task-time').value = '';
@@ -266,18 +243,13 @@ async function renderTasks() {
   const container = document.getElementById('tasks-list');
   if (tasks.length === 0) {
     container.innerHTML = '<div class="empty-state">Нет задач. Добавьте первую!</div>';
-    return;
-  }
+    return;  }
 
   container.innerHTML = tasks.map(t => {
     const date = new Date(t.reminderTime);
     const dateStr = date.toLocaleString('ru-RU', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+    let badge = t.recurrence === 'daily' ? ' 🔁 День' : t.recurrence === 'weekly' ? ' 🔁 Неделя' : t.recurrence === 'monthly' ? ' 🔁 Месяц' : '';
     
-    let badge = '';
-    if (t.recurrence === 'daily') badge = ' 🔁 День';
-    else if (t.recurrence === 'weekly') badge = ' 🔁 Неделя';
-    else if (t.recurrence === 'monthly') badge = ' 🔁 Месяц';
-
     return `
       <div class="task-card" style="${t.notified ? 'opacity:0.5;text-decoration:line-through' : ''}" onclick="window.exportTask(${t.id})">
         <div class="task-info">
@@ -285,27 +257,14 @@ async function renderTasks() {
           <div class="task-time">${dateStr}</div>
         </div>
         <div class="task-actions">
-          <button class="btn-icon btn-delete" onclick="event.stopPropagation(); window.deleteTask(${t.id})">🗑️</button>
+          <button class="btn-icon btn-delete" onclick="event.stopPropagation(); window.deleteTask(${t.id})">️</button>
         </div>
       </div>
     `;
   }).join('');
 }
 
-window.deleteTask = async (id) => {  if (confirm('Удалить задачу?')) {
-    await db.delete(id);
-    renderTasks();
-  }
-};
+window.deleteTask = async (id) => { if (confirm('Удалить?')) { await db.delete(id); renderTasks(); } };
+window.exportTask = async (id) => { const t = await db.get(id); if (t) exportToCalendar(t); };
 
-window.exportTask = async (id) => {
-  const task = await db.get(id);
-  if (task) {
-    openGoogleCalendar(task);
-  }
-};
-
-document.addEventListener('DOMContentLoaded', () => {
-  requestNotifPerm();
-  renderTasks();
-});
+document.addEventListener('DOMContentLoaded', () => { requestNotifPerm(); renderTasks(); });
